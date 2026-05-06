@@ -19,6 +19,9 @@ def newton_dumped(
     l_g: np.ndarray,
     tol: float = 1e-6,
     max_iter: int = 200,
+    beta: float = 0.5,
+    gamma: float = 0.1,
+    sigma: float = 0,
 ):
     post_proc = {}
     post_proc["step"] = []
@@ -26,15 +29,13 @@ def newton_dumped(
     post_proc["x"].append(x_g.flatten())
     post_proc["alpha"] = []
     post_proc["kkt_violation"] = []
+    post_proc["sigma"] = []
 
     # Compute sensitivities
     df = f.jacobian()
     dg = g.jacobian()
 
     step = 0
-    beta = 0.5
-    gamma = 0.1
-    sigma = 1
 
     # Print header
     print("\n" + "=" * 140)
@@ -67,7 +68,10 @@ def newton_dumped(
         # Regularize Hessian if needed
         Z = nullspace(dgx.T)
         if not Z.size == 0:
-            d2Lx = hessian_regularization(d2Lx, Z)
+            d2Lx, new_eigen = hessian_regularization(d2Lx, Z)
+            sigma = np.linalg.norm(new_eigen, ord=np.inf) + 1e-4
+
+        post_proc["sigma"].append(sigma)
 
         # Compute the newton direction
         # [d2Lx, dgx.T; dgx, 0] [dx; dl] = -[dfx; gx]

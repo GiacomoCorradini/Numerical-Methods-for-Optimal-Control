@@ -41,7 +41,7 @@ def hessian_regularization(Hx, Z, epsilon: float = 1e-6):
     # Regularize the Hessian by adding lambda * I
     H_reg = Hx + Z @ E @ np.diag(Lambda_bar - Lambda) @ E.T @ Z.T
 
-    return H_reg
+    return H_reg, Lambda_bar
 
 
 # def gauss_newton_hessian(f, x):
