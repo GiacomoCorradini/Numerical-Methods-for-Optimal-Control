@@ -36,7 +36,7 @@ def hessian_regularization(Hx, Z, epsilon: float = 1e-6):
     Lambda_bar = Lambda.copy()
     for i in range(len(Lambda)):
         if Lambda[i] < epsilon:
-            Lambda_bar[i] = delta_j(epsilon)  # , Lambda=Lambda[i])
+            Lambda_bar[i] = delta_j(epsilon, Lambda=Lambda[i])
 
     # Regularize the Hessian by adding lambda * I
     H_reg = Hx + Z @ E @ np.diag(Lambda_bar - Lambda) @ E.T @ Z.T
