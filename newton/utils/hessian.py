@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def exact_hessian(f, x):
 
     # Compute the Jacobian of f
@@ -12,6 +15,33 @@ def exact_hessian(f, x):
     Hx = H(x, fx, Jx)[0].toarray()
 
     return Hx, Jx
+
+
+def delta_j(epsilon: float, Lambda: float | None = None):
+
+    if Lambda is None:
+        sp = epsilon
+    else:
+        sp = max(epsilon, -Lambda)
+
+    return sp
+
+
+def hessian_regularization(Hx, Z, epsilon: float = 1e-6):
+
+    # Compute the eigenvalues of the Hessian
+    Lambda, E = np.linalg.eigh(Z.T @ Hx @ Z)
+
+    # Compute the regularization parameter lambda
+    Lambda_bar = Lambda.copy()
+    for i in range(len(Lambda)):
+        if Lambda[i] < epsilon:
+            Lambda_bar[i] = delta_j(epsilon)  # , Lambda=Lambda[i])
+
+    # Regularize the Hessian by adding lambda * I
+    H_reg = Hx + Z @ E @ np.diag(Lambda_bar - Lambda) @ E.T @ Z.T
+
+    return H_reg
 
 
 # def gauss_newton_hessian(f, x):
