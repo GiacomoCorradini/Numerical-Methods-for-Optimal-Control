@@ -1,0 +1,8 @@
+# Ignore folders
+docs
+__pycache__
+.vscode
+.idea
+
+# Ignore files
+*.pdf
