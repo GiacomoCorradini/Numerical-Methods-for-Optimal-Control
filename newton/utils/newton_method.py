@@ -53,9 +53,6 @@ def newton_dumped(
         L = f(x) + ca.DM(l_g).T @ g(x)
         L = ca.Function("L", [x], [L])
 
-        # Compute sensitivities
-        dL = L.jacobian()
-
         # Compute Hessian of Lagrangian
         d2Lx, _ = exact_hessian(L, x_g)
 
@@ -83,7 +80,7 @@ def newton_dumped(
         dl = sol[x_g.shape[0] :]
 
         # Linesearch direction Armijo
-        alpha = armijo_linesearch(f, g, x_g, dx, dfx, beta, gamma, sigma)
+        alpha = armijo_linesearch(x_g, f, dfx, dx, beta, gamma, g=g, sigma=sigma)
         post_proc["alpha"].append(alpha)
 
         # Step
@@ -102,7 +99,7 @@ def newton_dumped(
 
         # KKT violation
         kkt_violation = np.linalg.norm(
-            np.abs(np.concatenate([np.array(dLx).flatten(), np.array(gx).flatten()])),
+            np.concatenate([np.array(dLx).flatten(), np.array(gx).flatten()]),
             ord=np.inf,
         )
         post_proc["kkt_violation"].append(kkt_violation)
