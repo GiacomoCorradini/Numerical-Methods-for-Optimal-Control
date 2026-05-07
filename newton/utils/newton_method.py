@@ -50,7 +50,7 @@ def newton_dumped(
         post_proc["step"].append(step)
 
         # Compute lagrangian
-        L = f(x) + l_g.T @ g(x)
+        L = f(x) + ca.DM(l_g).T @ g(x)
         L = ca.Function("L", [x], [L])
 
         # Compute sensitivities
@@ -75,7 +75,8 @@ def newton_dumped(
 
         # Compute the newton direction
         # [d2Lx, dgx.T; dgx, 0] [dx; dl] = -[dfx; gx]
-        A = np.block([[d2Lx, dgx], [dgx.T, np.zeros((dgx.T.shape[0], dgx.shape[1]))]])
+        zero_block = np.zeros((dgx.T.shape[0], dgx.shape[1]))
+        A = np.block([[d2Lx, dgx], [dgx.T, zero_block]])
         B = -np.block([[dfx], [gx]])
         sol = np.linalg.solve(A, B)
         dx = sol[: x_g.shape[0]]
@@ -92,7 +93,7 @@ def newton_dumped(
         post_proc["x"].append(x_g.flatten())
 
         # Recompute residuals AFTER step
-        L = f(x) + l_g @ g(x)
+        L = f(x) + ca.DM(l_g).T @ g(x)
         L = ca.Function("L", [x], [L])
         dL = L.jacobian()
         Lx = L(x_g).toarray()
