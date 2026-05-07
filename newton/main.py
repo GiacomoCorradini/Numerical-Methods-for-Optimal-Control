@@ -8,23 +8,47 @@ import matplotlib.pyplot as plt
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 
-from newton.utils.newton_method import newton_dumped
+from newton.utils.newton_method import newton_dumped, sqp
+
+# Results storage for summary
+optimization_results = []
+
+
+# Helper function to record results
+def record_result(example_name, x_g, l_g, post_proc, x_initial, m_g=None):
+    """Record optimization result for summary"""
+    result = {
+        "example": example_name,
+        "initial_guess": x_initial.flatten(),
+        "iterations": post_proc["step"][-1],
+        "solution": x_g.flatten(),
+        "kkt_violation": post_proc["kkt_violation"][-1],
+    }
+    if m_g is not None:
+        result["inequality_multiplier"] = m_g.flatten()
+    else:
+        result["equality_multiplier"] = l_g.flatten()
+    optimization_results.append(result)
 
 
 # %% Plot function
-def plot_contour_and_kkt(post_proc, f, g, x_g):
-    x1 = np.linspace(-10, 10, 100)
-    x2 = np.linspace(-10, 10, 100)
+def plot_contour_and_kkt(post_proc, f, g, x_g, h=None):
+    x1 = np.linspace(-3, 3, 100)
+    x2 = np.linspace(-3, 3, 100)
     X1, X2 = np.meshgrid(x1, x2)
 
     # Evaluate functions on mesh
     F = np.zeros_like(X1)
     G = np.zeros_like(X1)
+    if h is not None:
+        H = np.zeros_like(X1)
     for i in range(X1.shape[0]):
         for j in range(X1.shape[1]):
             x_val = np.array([[X1[i, j]], [X2[i, j]]])
             F[i, j] = float(f(x_val))
             G[i, j] = float(g(x_val))
+            if h is not None:
+                H[i, j] = float(h(x_val))
 
     fig = plt.figure(figsize=(12, 10))
 
@@ -32,6 +56,11 @@ def plot_contour_and_kkt(post_proc, f, g, x_g):
     ax = fig.add_subplot(221)
     ax.contour(X1, X2, F, levels=50, cmap="viridis")
     ax.contour(X1, X2, G, levels=[0], colors="red", linewidths=2)
+    if h is not None:
+        ax.contour(X1, X2, H, levels=[0], colors="blue", linewidths=2)
+        # Plot the area where h(x) < 0
+        ax.contourf(X1, X2, H, levels=[-np.inf, 0], colors="blue", alpha=0.3)
+
     x_hist_array = np.array(post_proc["x"])
     ax.plot(
         x_hist_array[:, 0],
@@ -95,11 +124,13 @@ g = ca.Function("g", [x], [_g])
 # 1
 x_g = np.array([[0.0], [1.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1a-1", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -107,11 +138,13 @@ except Exception as e:
 # 2
 x_g = np.array([[-1.0], [-1.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1a-2", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -119,11 +152,13 @@ except Exception as e:
 # 3
 x_g = np.array([[-1.0], [1.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1a-3", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -133,11 +168,13 @@ except Exception as e:
 # 1
 x_g = np.array([[1.0], [1.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1b-1", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -145,11 +182,13 @@ except Exception as e:
 # 2
 x_g = np.array([[1.0], [1.0 + 10e-6]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1b-2", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -158,11 +197,13 @@ except Exception as e:
 
 x_g = np.array([[0.0], [0.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1c", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -171,11 +212,13 @@ except Exception as e:
 
 x_g = np.array([[0.5], [1.0]])
 l_g = np.array([[0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8
     )
+    record_result("Example 1d", x_g, l_g, post_proc, x_init)
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
 except Exception as e:
     print("Error during optimization:", e)
@@ -193,11 +236,13 @@ g = ca.Function("g", [x], [ca.vertcat(_g1, _g2)])
 
 x_g = np.array([[1.0], [1.0], [0.0]])
 l_g = np.array([[0.0], [0.0]])
+x_init = x_g.copy()
 
 try:
     x_g, l_g, post_proc = newton_dumped(
         x, f, g, x_g, l_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-9
     )
+    record_result("Example 2", x_g, l_g, post_proc, x_init)
     print("Optimal x:", x_g.flatten())
     print("Optimal λ:", l_g.flatten())
     fig = plot_contour_and_kkt(post_proc, f, g, x_g)
@@ -213,6 +258,123 @@ try:
     print("Optimal x (IPOPT):", x_opt_ipopt.flatten())
 except Exception as e:
     print("Error during IPOPT optimization:", e)
+
+# %% Example 3
+nx = 2
+x = ca.SX.sym("x", nx)
+
+_f = x.T @ x + ca.SX.ones(nx).T @ x
+f = ca.Function("f", [x], [_f])
+
+_g = x.T @ x - 1
+g = ca.Function("g", [x], [_g])
+
+_h = 0.5 - x[0] ** 2 - x[1]
+h = ca.Function("h", [x], [_h])
+
+# %% (a)
+
+# 1
+x_g = np.array([[0.0], [1.0]])
+l_g = np.zeros_like([[0.0]])
+m_g = np.zeros_like([[0.0]])
+x_init = x_g.copy()
+
+try:
+    x_g, l_g, m_g, post_proc = sqp(
+        x, f, g, h, x_g, l_g, m_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8, max_iter=400
+    )
+    record_result("Example 3a-1", x_g, l_g, post_proc, x_init, m_g)
+    fig = plot_contour_and_kkt(post_proc, f, g, x_g, h)
+except Exception as e:
+    print("Error during optimization:", e)
+
+# 2
+x_g = np.array([[-1.0], [-1.0]])
+l_g = np.zeros_like([[0.0]])
+m_g = np.zeros_like([[0.0]])
+x_init = x_g.copy()
+
+try:
+    x_g, l_g, m_g, post_proc = sqp(
+        x, f, g, h, x_g, l_g, m_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8, max_iter=400
+    )
+    record_result("Example 3a-2", x_g, l_g, post_proc, x_init, m_g)
+    fig = plot_contour_and_kkt(post_proc, f, g, x_g, h)
+except Exception as e:
+    print("Error during optimization:", e)
+
+# %% (b)
+
+# 1
+x_g = np.array([[0.9], [1.0]])
+l_g = np.zeros_like([[0.0]])
+m_g = np.zeros_like([[0.0]])
+x_init = x_g.copy()
+
+try:
+    x_g, l_g, m_g, post_proc = sqp(
+        x, f, g, h, x_g, l_g, m_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8, max_iter=400
+    )
+    record_result("Example 3b-1", x_g, l_g, post_proc, x_init, m_g)
+    fig = plot_contour_and_kkt(post_proc, f, g, x_g, h)
+except Exception as e:
+    print("Error during optimization:", e)
+
+# 2
+x_g = np.array([[1.0], [-1.0]])
+l_g = np.zeros_like([[0.0]])
+m_g = np.zeros_like([[0.0]])
+x_init = x_g.copy()
+
+try:
+    x_g, l_g, m_g, post_proc = sqp(
+        x, f, g, h, x_g, l_g, m_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-8, max_iter=400
+    )
+    record_result("Example 3b-2", x_g, l_g, post_proc, x_init, m_g)
+    fig = plot_contour_and_kkt(post_proc, f, g, x_g, h)
+except Exception as e:
+    print("Error during optimization:", e)
+
+# 3
+x_g = np.array([[0.0], [-1.0]])
+l_g = np.zeros_like([[0.0]])
+m_g = np.zeros_like([[0.0]])
+x_init = x_g.copy()
+
+try:
+    x_g, l_g, m_g, post_proc = sqp(
+        x, f, g, h, x_g, l_g, m_g, beta=0.5, gamma=0.1, sigma=0, tol=1e-10, max_iter=400
+    )
+    record_result("Example 3b-3", x_g, l_g, post_proc, x_init, m_g)
+    fig = plot_contour_and_kkt(post_proc, f, g, x_g, h)
+except Exception as e:
+    print("Error during optimization:", e)
+
+
+# %% Summary of Results
+print("\n" + "=" * 120)
+print("OPTIMIZATION SUMMARY - ITERATIONS AND SOLUTIONS")
+print("=" * 120)
+
+if optimization_results:
+    for i, result in enumerate(optimization_results, 1):
+        print(f"\n{i}. {result['example']}")
+        print(f"   Initial guess x0: {result['initial_guess']}")
+        print(f"   Iterations to convergence: {result['iterations']}")
+        print(f"   Solution x*: {result['solution']}")
+        if "equality_multiplier" in result:
+            print(f"   Multiplier λ*: {result['equality_multiplier']}")
+        if "inequality_multiplier" in result:
+            print(f"   Multiplier m*: {result['inequality_multiplier']}")
+        print(f"   Final KKT violation: {result['kkt_violation']:.3e}")
+        print("   " + "-" * 110)
+else:
+    print("\nNo results recorded. Check optimization execution above.")
+
+print("\n" + "=" * 120)
+print("END OF SUMMARY")
+print("=" * 120 + "\n")
 
 # %% Plotting
 plt.show()
