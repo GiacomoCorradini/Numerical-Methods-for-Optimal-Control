@@ -1,36 +1,60 @@
+import casadi as ca
 import numpy as np
 
 
-def warning_alpha_min(alpha_min: float, method_name: str) -> None:
-    print(
-        f"Warning: {method_name} linesearch failed to find a suitable step size. Minimum alpha reached: {alpha_min}"
-    )
+def merit_l1(
+    f: ca.Function,
+    dfx: np.ndarray,
+    Dx: np.ndarray,
+    g: ca.Function | None = None,
+    h: ca.Function | None = None,
+    sigma: float = 0,
+):
+    x = ca.SX.sym("x", Dx.shape[0])
+
+    M1 = f(x)
+    DdxM1 = dfx.T @ Dx
+
+    if g is not None:
+        g_x_l1 = ca.norm_1(g(x))
+        M1 = M1 + sigma * g_x_l1
+        DdxM1 = DdxM1 - sigma * g_x_l1
+
+    if h is not None:
+        h_x_l1 = ca.norm_1(ca.fmax(h(x), 0))
+        M1 = M1 + sigma * h_x_l1
+        DdxM1 = DdxM1 - sigma * h_x_l1
+
+    M1 = ca.Function("M1", [x], [M1])
+    DdxM1 = ca.Function("DdxM1", [x], [DdxM1])
+
+    return M1, DdxM1
 
 
 def armijo_linesearch(
-    f,
-    g,
-    x,
-    Dx,
-    dfx,
+    x: np.ndarray,
+    f: ca.Function,
+    dfx: np.ndarray,
+    Dx: np.ndarray,
     beta: float,
     gamma: float,
-    sigma: float,
+    g: ca.Function | None = None,
+    h: ca.Function | None = None,
+    sigma: float = 0,
     alpha: float = 1.0,
     alpha_min: float = 1e-8,
 ) -> float:
-    f_x = f(x)
-    g_x = sigma * np.linalg.norm(g(x), ord=1)
-    Ddx = dfx.T @ Dx - g_x
 
-    while (
-        f(x + alpha * Dx) + sigma * np.linalg.norm(g(x + alpha * Dx), ord=1)
-        >= f_x + g_x + gamma * alpha * Ddx
-    ):
+    M1, DdxM1 = merit_l1(f, dfx, Dx, g=g, h=h, sigma=sigma)
+
+    # evaluate merit at numeric points; DdxM1 returns a constant
+    while M1(x + alpha * Dx) >= (M1(x) + gamma * alpha * DdxM1(x)):
         alpha = beta * alpha
 
         if alpha < alpha_min:
-            warning_alpha_min(alpha, "Armijo")
+            print(
+                f"Warning: Armijo linesearch failed to find a suitable step size. Minimum alpha reached: {alpha_min}"
+            )
             break
 
     return alpha
