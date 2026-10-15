@@ -1,3 +1,5 @@
 numpy
 casadi
 matplotlib
+jupyter
+ipykernel
