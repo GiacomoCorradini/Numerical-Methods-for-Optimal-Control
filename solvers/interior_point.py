@@ -92,7 +92,7 @@ def interior_point(
     # Check convergence of the initial guess
     kkt_violation = float(kkt_fun(x_g, l_g, m_g))
     post_proc["kkt_violation"].append(kkt_violation)
-    converged = kkt_violation < tol and tau <= tol
+    converged = kkt_violation < tol and (tau <= tol or n_h == 0)  # no inequalities: tau is irrelevant
 
     # Print header
     print("\n" + "=" * 140)
@@ -148,7 +148,12 @@ def interior_point(
             ]
         )
         rhs = -r_tau_fun(x_g, l_g, m_g, s, tau).full()
-        sol = np.linalg.solve(A, rhs)
+        try:
+            sol = np.linalg.solve(A, rhs)
+        except np.linalg.LinAlgError:
+            raise RuntimeError(
+                f"KKT matrix is singular at x = {x_g.flatten()}: is LICQ satisfied?"
+            )
         # fmt: on
 
         dx = sol[:n_x]
@@ -216,7 +221,7 @@ def interior_point(
         if np.linalg.norm(r_tau_fun(x_g, l_g, m_g, s, tau).full(), ord=np.inf) <= tau:
             tau = max(0.1 * tau, tol)
 
-        converged = kkt_violation < tol and tau <= tol
+        converged = kkt_violation < tol and (tau <= tol or n_h == 0)  # no inequalities: tau is irrelevant
 
     print("=" * 140)
     if converged:

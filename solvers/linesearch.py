@@ -90,11 +90,17 @@ def armijo_linesearch(
     sigma: float = 0,
     alpha: float = 1.0,
     alpha_min: float = 1e-8,
+    step_tol: float = 1e-10,
 ) -> tuple[float, bool]:
     """Backtracking on Armijo's condition on the ℓ1 merit function
 
     Returns the step size alpha and a flag telling whether the line search succeeded.
     """
+
+    # Zero step: the current point already solves the Newton / QP subproblem.
+    # Accept it, so that the multipliers can still be updated.
+    if np.linalg.norm(Dx, ord=np.inf) < step_tol:
+        return alpha, True
 
     M1, DdxM1 = merit_l1(f, dfx, Dx, g=g, h=h, sigma=sigma)
 
@@ -134,6 +140,7 @@ def armijo_linesearch_ip(
     alpha: float = 1.0,
     alpha_min: float = 1e-8,
     tau: float = 1.0,
+    step_tol: float = 1e-10,
 ) -> tuple[float, bool]:
     """Backtracking on Armijo's condition on the ℓ1 merit function with log-barrier (interior point)
 
@@ -142,6 +149,11 @@ def armijo_linesearch_ip(
 
     Returns the step size alpha and a flag telling whether the line search succeeded.
     """
+
+    # Zero step: the current point already solves the Newton subproblem for this tau.
+    # Accept it, so that the multipliers, the slacks and tau can still be updated.
+    if np.linalg.norm(np.vstack([Dx, Ds]), ord=np.inf) < step_tol:
+        return alpha, True
 
     M1, DdxM1 = merit_l1_ip(f, dfx, Dx, Ds, g=g, h=h, sigma=sigma, tau=tau)
 
