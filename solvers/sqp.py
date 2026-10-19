@@ -26,6 +26,18 @@ def sqp(
     hessian: str = "exact",
     R: ca.Function | None = None,
 ):
+    """SQP method with line search for  min f(x)  s.t.  g(x) = 0,  h(x) <= 0
+
+    f, g, h:       CasADi Functions of x
+    x_g, l_g, m_g: initial guess of x, lambda and mu (column vectors)
+    tol:           stop when ||(grad L, g, max(0, h))||_inf < tol
+    beta, gamma:   Armijo line-search parameters
+    sigma:         initial weight of the l1 merit function
+    hessian:       "exact" or "gauss-newton" (needs R, with f = 1/2 ||R||^2)
+
+    Returns x, lambda, mu and post_proc (iterates, step sizes, KKT violation, sigma, QP convexity).
+    """
+    # History of the iterations (for plots)
     post_proc = {}
     post_proc["step"] = []
     post_proc["x"] = []
@@ -35,7 +47,8 @@ def sqp(
     post_proc["sigma"] = []
     post_proc["qp_convex"] = []
 
-    # Compute sensitivities
+    # ---------------- Symbolic functions, built once ----------------
+    # Lagrangian L = f + lambda^T g + mu^T h and its sensitivities
     x = ca.SX.sym("x", x_g.shape[0])
     L, lam, mu = lagrangian(x, f, g, h)
     grad_f = ca.Function("grad_f", [x], [ca.gradient(f(x), x)])  # n x 1
@@ -63,8 +76,9 @@ def sqp(
     else:
         raise ValueError(f"Unknown hessian '{hessian}': use 'exact' or 'gauss-newton'")
 
+    # ---------------- Initialization ----------------
     step = 0
-    success = True
+    success = True  # line-search outcome
 
     # Check convergence of the initial guess
     kkt_violation = float(kkt_fun(x_g, l_g, m_g))
@@ -79,19 +93,19 @@ def sqp(
     )
     print("=" * 140)
 
+    # ---------------- SQP iterations ----------------
     while not converged and step < max_iter:
         step += 1
 
-        # Compute Hessian of Lagrangian
+        # 1. Evaluate Hessian, constraints and gradients at the current iterate
         d2Lx = B_fun(x_g, l_g, m_g).full()
-
-        # Evaluate functions at guess
         gx = g(x_g).toarray()
         hx = h(x_g).toarray()
         dfx = grad_f(x_g).toarray()
         dgx = grad_g(x_g).toarray()
         dhx = grad_h(x_g).toarray()
 
+        # 2. Regularize B on the null space of the active constraints
         # Active inequality constraints, estimated from the multipliers (mu_i > 0)
         dhx_a = dhx[:, (m_g.flatten() > 1e-5)]
 
@@ -103,7 +117,8 @@ def sqp(
         # The QP is convex only if B >= 0: the regularization only ensures Z^T B Z > 0
         qp_convex = np.min(np.linalg.eigvalsh(d2Lx)) >= -1e-10
 
-        # Compute the newton direction by solving the QP
+        # 3. Newton direction from the QP
+        #    min 1/2 Dx^T B Dx + grad f^T Dx  s.t.  g + grad g^T Dx = 0,  h + grad h^T Dx <= 0
         Dx = ca.SX.sym("Dx", x_g.shape[0])
         f_qp = 1 / 2 * Dx.T @ d2Lx @ Dx + dfx.T @ Dx
         g_qp = gx + dgx.T @ Dx
@@ -114,49 +129,52 @@ def sqp(
             "solver", "qpoases", qp, {"printLevel": "none", "error_on_fail": False}
         )
         ng, nh = gx.shape[0], hx.shape[0]
+        # Bounds on [g_qp; h_qp]: equalities = 0, inequalities <= 0
         sol = solver(
             lbg=np.vstack([np.zeros((ng, 1)), -np.inf * np.ones((nh, 1))]),
             ubg=np.zeros((ng + nh, 1)),
         )
 
-        # Check that the QP has been solved
+        # Stop if the QP cannot be solved (e.g. incompatible linearized constraints)
         if not solver.stats()["success"]:
             raise RuntimeError(
                 f"QP failed at x = {x_g.flatten()} ({solver.stats()['return_status']}): "
                 "are the linearized constraints infeasible?"
             )
 
-        # Get solution
+        # Primal step and new multipliers lambda+ = lambda_QP, mu+ = mu_QP
         dx = np.array(sol["x"])
         l_qp = np.array(sol["lam_g"][: gx.shape[0]])
         m_qp = np.array(sol["lam_g"][gx.shape[0] :])
 
-        # Update the l1 merit weight: exact merit function if sigma > ||(lambda+, mu+)||_inf
+        # 4. Update the l1 merit weight: exact merit function if sigma > ||(lambda+, mu+)||_inf
         sigma = max(sigma, np.linalg.norm(np.vstack([l_qp, m_qp]), ord=np.inf) + 1e-4)
 
-        # Linesearch direction Armijo
+        # 5. Armijo line search on the l1 merit function
         alpha, success = armijo_linesearch(
             x_g, f, dfx, dx, beta, gamma, g=g, h=h, sigma=sigma
         )
         if not success:
             break
 
-        # Step
+        # 6. Damped step on x and on the multipliers
         x_g = x_g + alpha * dx
         l_g = (1 - alpha) * l_g + alpha * l_qp
         m_g = (1 - alpha) * m_g + alpha * m_qp
 
+        # Store the iteration (only after a successful step)
         post_proc["step"].append(step)
         post_proc["sigma"].append(sigma)
         post_proc["alpha"].append(alpha)
         post_proc["qp_convex"].append(qp_convex)
         post_proc["x"].append(x_g.flatten())
 
-        # KKT violation AFTER step
+        # 7. Convergence check at the new iterate
         kkt_violation = float(kkt_fun(x_g, l_g, m_g))
         post_proc["kkt_violation"].append(kkt_violation)
         converged = kkt_violation < tol
 
+        # Print the iteration
         fx = f(x_g).toarray()
         gx = g(x_g).toarray()
         x_str = "[" + ", ".join(f"{v:.4e}" for v in x_g.flatten()) + "]"
@@ -170,6 +188,7 @@ def sqp(
             f"{x_str:>31s} | {l_str:>19s}"
         )
 
+    # ---------------- Final message ----------------
     print("=" * 140)
     if converged:
         print(

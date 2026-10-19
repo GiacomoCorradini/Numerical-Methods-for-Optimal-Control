@@ -28,6 +28,23 @@ def interior_point(
     hessian: str = "exact",
     R: ca.Function | None = None,
 ):
+    """Primal-dual interior-point method for  min f(x)  s.t.  g(x) = 0,  h(x) <= 0
+
+    The inequalities are written as h(x) + s = 0 with slacks s > 0, and complementarity
+    mu_i s_i = 0 is relaxed to mu_i s_i = tau, with the barrier parameter tau -> 0.
+
+    f, g, h:     CasADi Functions of x (h can have zero outputs: no inequalities)
+    x_g, l_g:    initial guess of x and lambda (column vectors)
+    m_g:         initial guess of mu (> 0, default 1)
+    tol:         stop when ||(grad L, g, max(0, h))||_inf < tol and tau = tol
+    beta, gamma: Armijo line-search parameters
+    sigma:       initial weight of the l1 merit function
+    tau:         initial barrier parameter
+    hessian:     "exact" or "gauss-newton" (needs R, with f = 1/2 ||R||^2)
+
+    Returns x, lambda, mu, s and post_proc (iterates, step sizes, KKT violation, sigma, tau).
+    """
+    # History of the iterations (for plots)
     post_proc = {}
     post_proc["step"] = []
     post_proc["x"] = []
@@ -37,7 +54,8 @@ def interior_point(
     post_proc["sigma"] = []
     post_proc["tau"] = []
 
-    # Compute sensitivities
+    # ---------------- Symbolic functions, built once ----------------
+    # Lagrangian L = f + lambda^T g + mu^T h and its sensitivities
     x = ca.SX.sym("x", x_g.shape[0])
     L, lam, mu = lagrangian(x, f, g, h)
     grad_f = ca.Function("grad_f", [x], [ca.gradient(f(x), x)])  # n x 1
@@ -74,7 +92,8 @@ def interior_point(
         [ca.vertcat(ca.gradient(L, x), g(x), h(x) + s_sym, mu * s_sym - tau_sym)],
     )
 
-    # Initialize slack variables
+    # ---------------- Initialization ----------------
+    # mu > 0 (default 1) and s = tau / mu, so that mu_i s_i = tau
     n_h = h.size1_out(0)
     if np.isscalar(m_g):
         m_g = np.full((n_h, 1), m_g, dtype=float)
@@ -87,7 +106,7 @@ def interior_point(
     s = tau / m_g  # mu * s = tau
 
     step = 0
-    success = True
+    success = True  # line-search outcome
 
     # Check convergence of the initial guess
     kkt_violation = float(kkt_fun(x_g, l_g, m_g))
@@ -102,13 +121,12 @@ def interior_point(
     )
     print("=" * 140)
 
+    # ---------------- Interior-point iterations ----------------
     while not converged and step < max_iter:
         step += 1
 
-        # Compute Hessian of Lagrangian
+        # 1. Evaluate Hessian, constraints and gradients at the current iterate
         d2Lx = B_fun(x_g, l_g, m_g).full()
-
-        # Evaluate functions at guess
         fx = f(x_g).toarray()
         gx = g(x_g).toarray()
         hx = h(x_g).toarray()
@@ -116,7 +134,9 @@ def interior_point(
         dgx = grad_g(x_g).toarray()
         dhx = grad_h(x_g).toarray()
 
-        dhx_a = dhx[:, (s < m_g).flatten()]  # active constraints: h(x) + s = 0
+        # 2. Regularize B on the null space of the active constraints
+        # (mu > 0 always: a constraint is considered active if its slack is small, s_i < mu_i)
+        dhx_a = dhx[:, (s < m_g).flatten()]
 
         # Nullspace Z of [dgx, dhx_a]^T: regularize B such that Z^T B Z > 0
         Z = nullspace(np.block([dgx, dhx_a]).T)
@@ -129,7 +149,7 @@ def interior_point(
         M = np.diag(m_g.flatten())
 
         # fmt: off
-        # Newton direction: IP Newton system in full form, grad(r_tau)^T [dx; dl; dmu; ds] = -r_tau
+        # 3. Newton direction: IP Newton system in full form, grad(r_tau)^T [dx; dl; dmu; ds] = -r_tau
         # The unknowns are increments (dl, dmu), because the rhs contains grad L (not grad f)
         # [d2Lx,  dgx, dhx, 0] [dx ]    [grad L   ]
         # |dgx.T,   0,   0, 0| |dl | = -|g        |
@@ -161,15 +181,15 @@ def interior_point(
         dmu = sol[n_x + n_g : n_x + n_g + n_h]
         ds = sol[n_x + n_g + n_h :]
 
-        # Fraction to the boundary: largest step that keeps s, mu > 0
+        # 4. Fraction to the boundary: largest step that keeps s, mu > 0
         alpha_bar = fraction_to_boundary(s, ds, m_g, dmu)
 
-        # Update the l1 merit weight: exact merit function if sigma > ||(lambda+, mu+)||_inf
+        # 5. Update the l1 merit weight: exact merit function if sigma > ||(lambda+, mu+)||_inf
         sigma = max(
             sigma, np.linalg.norm(np.vstack([l_g + dl, m_g + dmu]), ord=np.inf) + 1e-4
         )
 
-        # Line search on the IP merit function, starting from alpha_bar
+        # 6. Armijo line search on the IP merit function (with barrier), starting from alpha_bar
         alpha, success = armijo_linesearch_ip(
             x_g,
             s,
@@ -188,19 +208,20 @@ def interior_point(
         if not success:
             break
 
-        # Step on all the IP variables
+        # 7. Step on all the IP variables (increments)
         x_g = x_g + alpha * dx
         l_g = l_g + alpha * dl
         m_g = m_g + alpha * dmu
         s = s + alpha * ds
 
+        # Store the iteration (only after a successful step)
         post_proc["step"].append(step)
         post_proc["sigma"].append(sigma)
         post_proc["alpha"].append(alpha)
         post_proc["tau"].append(tau)
         post_proc["x"].append(x_g.flatten())
 
-        # KKT violation AFTER step
+        # KKT violation at the new iterate
         kkt_violation = float(kkt_fun(x_g, l_g, m_g))
         post_proc["kkt_violation"].append(kkt_violation)
 
@@ -217,12 +238,14 @@ def interior_point(
             f"{kkt_violation:>15.3e} | {alpha:>10.6f} | {x_str:>31s} | {l_str:>19s}"
         )
 
-        # Barrier update: decrease tau once the IP-KKT residual is small enough
+        # 8. Barrier update: decrease tau once the IP-KKT residual is small enough
         if np.linalg.norm(r_tau_fun(x_g, l_g, m_g, s, tau).full(), ord=np.inf) <= tau:
             tau = max(0.1 * tau, tol)
 
-        converged = kkt_violation < tol and (tau <= tol or n_h == 0)  # no inequalities: tau is irrelevant
+        # 9. Convergence: KKT satisfied and tau at its minimum (tau is irrelevant without inequalities)
+        converged = kkt_violation < tol and (tau <= tol or n_h == 0)
 
+    # ---------------- Final message ----------------
     print("=" * 140)
     if converged:
         print(
